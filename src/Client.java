@@ -1,4 +1,5 @@
 import javafx.application.Application;
+import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
@@ -19,6 +20,7 @@ import java.util.List;
 public class Client extends Application {
 
     private Operations calc;
+    private Label expressionLabel;
     private TextField display;
     private Label statusLabel;
     private TextArea historyArea;
@@ -27,7 +29,6 @@ public class Client extends Application {
     private double firstOperand = 0;
     private boolean newInput = true;
 
-    // Tabs de modo
     private enum Mode { BASIC, SCIENTIFIC, CONVERSION }
     private Mode currentMode = Mode.BASIC;
 
@@ -41,74 +42,84 @@ public class Client extends Application {
         BorderPane root = new BorderPane();
         root.setStyle("-fx-background-color: #1e1e2e;");
 
-        // Topo: display + status
         VBox topArea = buildTopArea();
         root.setTop(topArea);
 
-        // Centro: abas de modos
         TabPane tabPane = buildTabPane();
         root.setCenter(tabPane);
 
-        // Direita: histórico
         VBox historyPanel = buildHistoryPanel();
         root.setRight(historyPanel);
 
-        Scene scene = new Scene(root, 720, 520);
+        Scene scene = new Scene(root, 720, 550);
         stage.setScene(scene);
         stage.show();
     }
 
-    // ─────────────────────────────────────────────
-    //  CONEXÃO RMI
-    // ─────────────────────────────────────────────
     private void connectToServer() {
-        try {
-            calc = (Operations) Naming.lookup("rmi://localhost/CalculatorService");
-            updateStatus("Conectado ao servidor RMI.", true);
-        } catch (ConnectException e) {
-            updateStatus("Servidor não iniciado.", false);
-        } catch (NotBoundException e) {
-            updateStatus("Serviço não encontrado.", false);
-        } catch (MalformedURLException e) {
-            updateStatus("URL inválida.", false);
-        } catch (RemoteException e) {
-            updateStatus("Erro de conexão remota.", false);
-        } catch (Exception e) {
-            updateStatus("Erro desconhecido: " + e.getMessage(), false);
-        }
+        new Thread(() -> {
+            try {
+                Operations lookupServer = (Operations) Naming.lookup("rmi://localhost/CalculatorService");
+                Platform.runLater(() -> {
+                    calc = lookupServer;
+                    updateStatus("Conectado ao servidor RMI.", true);
+                    refreshHistory();
+                });
+            } catch (ConnectException e) {
+                Platform.runLater(() -> updateStatus("Servidor não iniciado.", false));
+            } catch (NotBoundException e) {
+                Platform.runLater(() -> updateStatus("Serviço não encontrado.", false));
+            } catch (MalformedURLException e) {
+                Platform.runLater(() -> updateStatus("URL inválida.", false));
+            } catch (RemoteException e) {
+                Platform.runLater(() -> updateStatus("Erro de conexão remota.", false));
+            } catch (Exception e) {
+                Platform.runLater(() -> updateStatus("Erro desconhecido: " + e.getMessage(), false));
+            }
+        }).start();
     }
 
-    // ─────────────────────────────────────────────
-    //  TOP: DISPLAY
-    // ─────────────────────────────────────────────
     private VBox buildTopArea() {
         VBox box = new VBox(4);
         box.setPadding(new Insets(16, 16, 8, 16));
+
+        VBox displayBox = new VBox(2);
+        displayBox.setAlignment(Pos.CENTER_RIGHT);
+        displayBox.setStyle(
+                "-fx-background-color: #2a2a3e; " +
+                "-fx-border-color: #45475a; " +
+                "-fx-border-radius: 8; " +
+                "-fx-background-radius: 8; " +
+                "-fx-padding: 8 12;"
+        );
+
+        expressionLabel = new Label("");
+        expressionLabel.setFont(Font.font("Consolas", 14));
+        expressionLabel.setTextFill(Color.web("#a6adc8"));
+        expressionLabel.setAlignment(Pos.CENTER_RIGHT);
+        expressionLabel.setMaxWidth(Double.MAX_VALUE);
 
         display = new TextField("0");
         display.setEditable(false);
         display.setAlignment(Pos.CENTER_RIGHT);
         display.setFont(Font.font("Consolas", FontWeight.BOLD, 32));
         display.setStyle(
-                "-fx-background-color: #2a2a3e; " +
-                        "-fx-text-fill: #cdd6f4; " +
-                        "-fx-border-color: #45475a; " +
-                        "-fx-border-radius: 8; " +
-                        "-fx-background-radius: 8; " +
-                        "-fx-padding: 8 12;"
+                "-fx-background-color: transparent; " +
+                "-fx-text-fill: #cdd6f4; " +
+                "-fx-padding: 0;"
         );
+
+        displayBox.getChildren().addAll(expressionLabel, display);
 
         statusLabel = new Label("Conectando...");
         statusLabel.setFont(Font.font("Segoe UI", 11));
         statusLabel.setTextFill(Color.web("#a6adc8"));
+        VBox.setMargin(statusLabel, new Insets(4, 0, 0, 0));
 
-        box.getChildren().addAll(display, statusLabel);
+        box.getChildren().addAll(displayBox, statusLabel);
         return box;
     }
 
-    // ─────────────────────────────────────────────
-    //  ABAS
-    // ─────────────────────────────────────────────
     private TabPane buildTabPane() {
         TabPane tabPane = new TabPane();
         tabPane.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
@@ -122,9 +133,6 @@ public class Client extends Application {
         return tabPane;
     }
 
-    // ─────────────────────────────────────────────
-    //  ABA BÁSICA
-    // ─────────────────────────────────────────────
     private GridPane buildBasicGrid() {
         GridPane grid = new GridPane();
         grid.setHgap(8);
@@ -151,9 +159,6 @@ public class Client extends Application {
         return grid;
     }
 
-    // ─────────────────────────────────────────────
-    //  ABA CIENTÍFICA
-    // ─────────────────────────────────────────────
     private GridPane buildScientificGrid() {
         GridPane grid = new GridPane();
         grid.setHgap(8);
@@ -181,9 +186,6 @@ public class Client extends Application {
         return grid;
     }
 
-    // ─────────────────────────────────────────────
-    //  ABA CONVERSÃO
-    // ─────────────────────────────────────────────
     private VBox buildConversionPanel() {
         VBox box = new VBox(12);
         box.setPadding(new Insets(16));
@@ -223,13 +225,14 @@ public class Client extends Application {
             String val = inputField.getText().trim();
             if (val.isEmpty() || calc == null) return;
             try {
-                String from = fromBase.getValue();
-                String to   = toBase.getValue();
-                Number input  = parseInput(val, from);
-                Number result = performConversion(input, from, to);
-                String formatted = formatConversionResult(result, from, to);
+                int fromInt = getBaseFromStr(fromBase.getValue());
+                int toInt = getBaseFromStr(toBase.getValue());
+                
+                String formatted = calc.convertBase(val, fromInt, toInt);
                 resultLabel.setText("Resultado: " + formatted);
                 display.setText(formatted);
+                expressionLabel.setText(fromBase.getValue() + " -> " + toBase.getValue() + " (" + val + ")");
+                refreshHistory();
             } catch (NumberFormatException ex) {
                 resultLabel.setText("Entrada inválida.");
             } catch (RemoteException ex) {
@@ -241,9 +244,14 @@ public class Client extends Application {
         return box;
     }
 
-    // ─────────────────────────────────────────────
-    //  LÓGICA BÁSICA
-    // ─────────────────────────────────────────────
+    private int getBaseFromStr(String base) {
+        return switch (base) {
+            case "Binário" -> 2;
+            case "Hexadecimal" -> 16;
+            default -> 10;
+        };
+    }
+
     private void handleBasicInput(String label) {
         switch (label) {
             case "C"  -> clear();
@@ -251,30 +259,24 @@ public class Client extends Application {
             case "±"  -> negate();
             case "="  -> computeResult();
             case "+"  -> setOperator("+");
-            case "−"  -> setOperator("-");
-            case "×"  -> setOperator("*");
-            case "÷"  -> setOperator("/");
+            case "−"  -> setOperator("−");
+            case "×"  -> setOperator("×");
+            case "÷"  -> setOperator("÷");
             case "%"  -> applyPercent();
             default   -> appendDigit(label);
         }
     }
 
-    // ─────────────────────────────────────────────
-    //  LÓGICA CIENTÍFICA
-    // ─────────────────────────────────────────────
     private void handleScientificInput(String label) {
         switch (label) {
-            case "xʸ"  -> setOperator("pow");
-            case "ʸ√x" -> setOperator("root");
-            case "n!"  -> applySingle("factorial");
+            case "xʸ"  -> setOperator("xʸ");
+            case "ʸ√x" -> setOperator("ʸ√x");
+            case "n!"  -> applySingle("n!");
             case "mod" -> setOperator("mod");
             default    -> handleBasicInput(label);
         }
     }
 
-    // ─────────────────────────────────────────────
-    //  OPERAÇÕES
-    // ─────────────────────────────────────────────
     private void appendDigit(String d) {
         if (newInput) { currentInput = ""; newInput = false; }
         if (d.equals(".") && currentInput.contains(".")) return;
@@ -287,19 +289,21 @@ public class Client extends Application {
         firstOperand = parseDisplayValue();
         operator = op;
         newInput = true;
+        expressionLabel.setText(formatNumber(firstOperand) + " " + operator);
     }
 
     private void computeResult() {
         if (operator.isEmpty() || calc == null) return;
         double second = parseDisplayValue();
         try {
+            expressionLabel.setText(formatNumber(firstOperand) + " " + operator + " " + formatNumber(second) + " =");
             Number result = switch (operator) {
                 case "+"    -> calc.sum(firstOperand, second);
-                case "-"    -> calc.sub(firstOperand, second);
-                case "*"    -> calc.mul(firstOperand, second);
-                case "/"    -> calc.div(firstOperand, second);
-                case "pow"  -> calc.pow(second, firstOperand);
-                case "root" -> calc.root(second, firstOperand);
+                case "−"    -> calc.sub(firstOperand, second);
+                case "×"    -> calc.mul(firstOperand, second);
+                case "÷"    -> calc.div(firstOperand, second);
+                case "xʸ"  -> calc.pow(second, firstOperand);
+                case "ʸ√x" -> calc.root(second, firstOperand);
                 case "mod"  -> calc.mod(firstOperand, second);
                 default     -> null;
             };
@@ -319,8 +323,9 @@ public class Client extends Application {
         if (calc == null) return;
         double val = parseDisplayValue();
         try {
+            expressionLabel.setText(op + "(" + formatNumber(val) + ") =");
             Number result = switch (op) {
-                case "factorial" -> calc.factorial(val);
+                case "n!" -> calc.factorial(val);
                 default          -> null;
             };
             if (result != null) {
@@ -337,8 +342,9 @@ public class Client extends Application {
     private void applyPercent() {
         if (calc == null) return;
         try {
-            Number result = calc.percent(firstOperand == 0 ? parseDisplayValue() : firstOperand,
-                    parseDisplayValue());
+            double second = parseDisplayValue();
+            expressionLabel.setText(formatNumber(firstOperand == 0 ? second : firstOperand) + " % " + formatNumber(second) + " =");
+            Number result = calc.percent(firstOperand == 0 ? second : firstOperand, second);
             display.setText(formatNumber(result));
             currentInput = display.getText();
             refreshHistory();
@@ -351,6 +357,7 @@ public class Client extends Application {
     private void clear() {
         currentInput = "0"; operator = ""; firstOperand = 0; newInput = true;
         display.setText("0");
+        expressionLabel.setText("");
     }
 
     private void backspace() {
@@ -366,41 +373,6 @@ public class Client extends Application {
         display.setText(currentInput);
     }
 
-    // ─────────────────────────────────────────────
-    //  CONVERSÃO DE BASES
-    // ─────────────────────────────────────────────
-    private Number parseInput(String val, String base) {
-        return switch (base) {
-            case "Binário"       -> Long.parseLong(val, 2);
-            case "Hexadecimal"   -> Long.parseLong(val, 16);
-            default              -> Double.parseDouble(val);
-        };
-    }
-
-    private Number performConversion(Number input, String from, String to) throws RemoteException {
-        if (from.equals(to)) return input;
-        return switch (from + "->" + to) {
-            case "Decimal->Binário"         -> calc.decimalToBinary(input);
-            case "Decimal->Hexadecimal"     -> calc.decimalToHex(input);
-            case "Binário->Decimal"         -> calc.binaryToDecimal(input);
-            case "Binário->Hexadecimal"     -> calc.binaryToHex(input);
-            case "Hexadecimal->Decimal"     -> calc.hexToDecimal(input);
-            case "Hexadecimal->Binário"     -> calc.hexToBinary(input);
-            default                         -> input;
-        };
-    }
-
-    private String formatConversionResult(Number result, String from, String to) {
-        boolean toHex = to.equals("Hexadecimal");
-        boolean toBin = to.equals("Binário");
-        if (toHex) return Long.toHexString(result.longValue()).toUpperCase();
-        if (toBin) return Long.toBinaryString(result.longValue());
-        return formatNumber(result);
-    }
-
-    // ─────────────────────────────────────────────
-    //  HISTÓRICO
-    // ─────────────────────────────────────────────
     private VBox buildHistoryPanel() {
         VBox box = new VBox(8);
         box.setPadding(new Insets(12));
@@ -424,28 +396,51 @@ public class Client extends Application {
 
         Button refreshBtn = createButton("↻ Atualizar", secondaryStyle());
         refreshBtn.setMaxWidth(Double.MAX_VALUE);
-        refreshBtn.setOnAction(e -> refreshHistory());
+        refreshBtn.setOnAction(e -> refreshHistory(refreshBtn));
 
         box.getChildren().addAll(title, historyArea, refreshBtn);
         return box;
     }
 
     private void refreshHistory() {
-        if (calc == null) return;
-        try {
-            List<String> ops = calc.lastOperations(10);
-            StringBuilder sb = new StringBuilder();
-            for (int i = ops.size() - 1; i >= 0; i--)
-                sb.append(ops.get(i)).append("\n\n");
-            historyArea.setText(sb.toString());
-        } catch (RemoteException e) {
-            historyArea.setText("Erro ao carregar histórico.");
-        }
+        refreshHistory(null);
     }
 
-    // ─────────────────────────────────────────────
-    //  UTILITÁRIOS
-    // ─────────────────────────────────────────────
+    private void refreshHistory(Button btn) {
+        if (calc == null) return;
+        
+        if (btn != null) {
+            btn.setText("Atualizando...");
+            btn.setDisable(true);
+        }
+        
+        new Thread(() -> {
+            try {
+                List<String> ops = calc.lastOperations(10);
+                StringBuilder sb = new StringBuilder();
+                for (int i = ops.size() - 1; i >= 0; i--)
+                    sb.append(ops.get(i)).append("\n\n");
+                
+                String newText = sb.toString();
+                Platform.runLater(() -> {
+                    historyArea.setText(newText);
+                    if (btn != null) {
+                        btn.setText("↻ Atualizar");
+                        btn.setDisable(false);
+                    }
+                });
+            } catch (RemoteException e) {
+                Platform.runLater(() -> {
+                    historyArea.setText("Erro ao carregar histórico.");
+                    if (btn != null) {
+                        btn.setText("↻ Atualizar");
+                        btn.setDisable(false);
+                    }
+                });
+            }
+        }).start();
+    }
+
     private double parseDisplayValue() {
         try { return Double.parseDouble(display.getText()); }
         catch (NumberFormatException e) { return 0; }
@@ -465,9 +460,6 @@ public class Client extends Application {
         }
     }
 
-    // ─────────────────────────────────────────────
-    //  ESTILOS
-    // ─────────────────────────────────────────────
     private Button createButton(String text, String style) {
         Button btn = new Button(text);
         btn.setMinSize(64, 48);
@@ -526,9 +518,6 @@ public class Client extends Application {
                 });
     }
 
-    // ─────────────────────────────────────────────
-    //  MAIN
-    // ─────────────────────────────────────────────
     public static void main(String[] args) {
         launch(args);
     }
